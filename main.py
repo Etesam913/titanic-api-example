@@ -14,7 +14,6 @@ async def load_data(file: UploadFile):
     file_contents = await file.read()
     buffer = StringIO(file_contents.decode("utf-8"))
     csv_reader = csv.DictReader(buffer)
-    columns = set()
 
     conn = sqlite3.connect("titanic.db")
 
@@ -59,16 +58,36 @@ async def load_data(file: UploadFile):
         """,
         items_to_insert,
     )
-    cursor.execute(
-        """
-        SELECT * FROM titanic_data
-        """
-    )
-    rows = cursor.fetchall()
-
-    for row in rows:
-        print(row)
 
     conn.commit()
     conn.close()
     return {"type": file.content_type, "data": {}}
+
+
+@app.get("/data")
+def get_data():
+    conn = sqlite3.connect("titanic.db")
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM titanic_data")
+
+    rows = cursor.fetchall()
+    return rows
+
+
+@app.get("/survived")
+def get_survived_persons():
+    conn = sqlite3.connect("titanic.db")
+
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT id, name, sex, age
+        FROM titanic_data
+        WHERE survived=1
+        """
+    )
+
+    rows = cursor.fetchall()
+    return rows
