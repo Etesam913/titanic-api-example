@@ -1,10 +1,21 @@
 from pprint import pprint
 import sqlite3
 import csv
+from typing import Union
 from fastapi import FastAPI, UploadFile, HTTPException
 from io import StringIO
+from pydantic import BaseModel
+from enum import Enum
+
+
+class UpdateBody(BaseModel):
+    passenger_id: int
+    properties_to_change: dict[str, Union[str, int]]
+
 
 app = FastAPI()
+
+db_column_names = set(["survived", "name", "sex", "age", "ticket", "cabin"])
 
 
 @app.post("/uploadcsv")
@@ -58,7 +69,7 @@ async def load_data(file: UploadFile):
         """,
         items_to_insert,
     )
-
+    cursor.close()
     conn.commit()
     conn.close()
     return {"type": file.content_type, "data": {}}
@@ -68,11 +79,30 @@ async def load_data(file: UploadFile):
 def get_data():
     conn = sqlite3.connect("titanic.db")
     cursor = conn.cursor()
-
-    cursor.execute("SELECT * FROM titanic_data")
+    try:
+        cursor.execute("SELECT * FROM titanic_data")
+    except Exception as e:
+        raise HTTPException(
+            status_code=410, detail="The titanic_data table does not exist"
+        )
 
     rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
     return rows
+
+
+@app.delete("/delete")
+def delete_table():
+    conn = sqlite3.connect("titanic.db")
+    cursor = conn.cursor()
+
+    cursor.execute("DROP TABLE IF EXISTS titanic_data")
+    cursor.close()
+    conn.commit()
+    conn.close()
+
+    return {"status": "success"}
 
 
 @app.get("/survived")
@@ -90,4 +120,35 @@ def get_survived_persons():
     )
 
     rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
     return rows
+
+
+@app.patch("/update")
+def update_row(body: UpdateBody):
+    for key in body.properties_to_change:
+        if key not in db_column_names:
+            raise HTTPException(
+                status_code=422,
+                detail=f"One of the properties that you passed into the properties_to_change is not valid. The valid properties are {db_column_names}",
+            )
+
+    conn = sqlite3.connect("titanic.db")
+    cursor = conn.cursor()
+
+    set_clause = ", ".join([f"{key} = ?" for key in body.properties_to_change])
+
+    cursor.execute(
+        f"""
+        UPDATE titanic_data
+        SET {set_clause}
+        WHERE id = ?;
+        """,
+        list(body.properties_to_change.values()) + [body.passenger_id],
+    )
+    cursor.close()
+    conn.commit()
+    conn.close()
+
+    return {"success": True}
